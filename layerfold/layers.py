@@ -10,29 +10,29 @@ def calculate_equivalent_fc_layer(fc1, fc2, device):
 
 def calculate_equivalent_convolutional_layer(conv1, conv2, device):
     if conv1.bias is None:
-        conv1_bias = torch.zeros(conv1.out_channels).to('cuda')
+        conv1_bias = torch.zeros(conv1.out_channels).to(device)
     else:
         conv1_bias = conv1.bias
 
     if conv2.bias is None:
-        conv2_bias = torch.zeros(conv2.out_channels).to('cuda')
+        conv2_bias = torch.zeros(conv2.out_channels).to(device)
     else:
         conv2_bias = conv2.bias
 
     conv_eq_weight_data = torch.conv2d(conv1.weight.data.permute(1, 0, 2, 3),
                                     conv2.weight.data.flip(-1, -2),
-                                    padding=[conv2.kernel_size[0] - 1, conv2.kernel_size[0] - 1]).permute(1, 0, 2, 3).to('cuda')
+                                    padding=[conv2.kernel_size[0] - 1, conv2.kernel_size[0] - 1]).permute(1, 0, 2, 3).to(device)
     conv_eq = nn.Conv2d(in_channels=conv1.in_channels,
                         out_channels=conv2.out_channels,
                         kernel_size=3,
                         padding=conv1.padding[0],
                         stride=conv1.stride[0],
                         # bias=False
-                        ).to('cuda')
+                        ).to(device)
     # print(conv_eq_weight_data[:,:,1:4,1:4].shape)
     conv_eq.weight = nn.Parameter(conv_eq_weight_data[:,:,1:4,1:4])
-    bias_eq = conv2(torch.ones(1, conv1.out_channels, * conv2.kernel_size).to('cuda') * conv1_bias[None, :, None, None]).sum(dim=(0,2,3)).to('cuda') + conv2_bias
-    # bias_eq = conv2(torch.ones(1, conv1.out_channels, * conv2.kernel_size).to('cyda') * conv1_bias[None, :, None, None]).flatten().to('cuda')    
+    bias_eq = conv2(torch.ones(1, conv1.out_channels, * conv2.kernel_size).to(device) * conv1_bias[None, :, None, None]).sum(dim=(0,2,3)).to(device) + conv2_bias
+    # bias_eq = conv2(torch.ones(1, conv1.out_channels, * conv2.kernel_size).to('cyda') * conv1_bias[None, :, None, None]).flatten().to(device)    
     conv_eq.bias = nn.Parameter(bias_eq)
 
     return conv_eq   

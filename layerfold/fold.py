@@ -74,7 +74,7 @@ def fold_resnet(model, device):
 
   return fused_model
 
-def inside_MLP_fusion(model, name, device):
+def inside_MLP_fusion(model, device, name):
     namespace = {'model': model, 
                  'device': device, 
                  'torch':torch, 
@@ -82,10 +82,14 @@ def inside_MLP_fusion(model, name, device):
                  'nn': nn}
     exec(f'''
 fc1 = model.{name}[0]
-fc2 = model.{name}[3]
+fc2 = model.{name}[2]
+''', namespace)
+    exec(f'''
+fc1 = model.{name}[0]
+fc2 = model.{name}[2]
 fused_fc = calculate_equivalent_fc_layer(fc1,fc2,device)
 model.{name}[0] = fused_fc
-model.{name}[3] = nn.Identity()
+model.{name}[2] = nn.Identity()
 ''', namespace)
     return
 
@@ -98,11 +102,9 @@ def fold_swint(model, device):
       if isinstance(layer, (nn.Identity)):
         pattern = r'\.[0-9]'  
         name = re.sub(pattern=pattern, repl=numrepl, string=name)
-        # print(name)
         relu_list.append(name)
-
     for relu in relu_list:
-      inside_MLP_fusion(relu[:-3], fused_model, device)
+      inside_MLP_fusion(fused_model, device, relu[:-3])
 
     return fused_model
 
