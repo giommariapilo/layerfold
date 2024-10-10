@@ -1,11 +1,11 @@
 import os
 import torch
-import pickle
 import random
 import numpy as np
 import re 
 from .layers import calculate_equivalent_fc_layer, calculate_equivalent_convolutional_layer, fuse_conv_and_bn
 from torch import nn
+from copy import deepcopy
 
 def set_seed(seed):
   ## SEEDING
@@ -19,14 +19,18 @@ def set_seed(seed):
   return
 
 def inside_block_fusion(model, device, name):
-  namespace = {'model': model, 'device': device, 'torch':torch, 'fold': fold, 'nn': nn, 'test': None}
-  # print(name)
-  exec(f'test = isinstance(model.{name+"downsample"}, nn.Sequential)', namespace)
+  namespace = {'model': model, 
+               'device': device, 
+               'torch':torch, 
+               'fuse_conv_and_bn': fuse_conv_and_bn, 
+               'calculate_equivalent_convolutional_layer': calculate_equivalent_convolutional_layer,
+               'nn': nn}
+
   exec(f'''
 conv = model.{name+"conv1"}
 if isinstance(model.{name+"bn1"}, nn.BatchNorm2d):
   bn = model.{name+"bn1"}
-  fused_conv = fold.fuse_conv_and_bn(conv, bn, device)
+  fused_conv = fuse_conv_and_bn(conv, bn, device)
   model.{name + "conv1"} = fused_conv
   model.{name + "bn1"} = nn.Identity()
 ''', namespace)
@@ -35,7 +39,7 @@ if isinstance(model.{name+"bn1"}, nn.BatchNorm2d):
 conv = model.{name+"conv2"}
 if isinstance(model.{name+"bn2"}, nn.BatchNorm2d):
   bn = model.{name+"bn2"}
-  fused_conv = fold.fuse_conv_and_bn(conv, bn, device)
+  fused_conv = fuse_conv_and_bn(conv, bn, device)
   model.{name + "conv2"} = fused_conv
   model.{name + "bn2"} = nn.Identity()
 ''', namespace)
@@ -44,51 +48,72 @@ if isinstance(model.{name+"bn2"}, nn.BatchNorm2d):
   exec(f'''
 conv1 = model.{name+"conv1"}
 conv2 = model.{name+"conv2"}
-# print(conv1.bias.shape)
-# print(conv2.bias.shape)
-fused_conv = fold.calculate_equivalent_convolutional_layer(conv1, conv2, device)
+fused_conv = calculate_equivalent_convolutional_layer(conv1, conv2, device)
 model.{name+"conv1"} = nn.Identity()
 model.{name+"conv2"}= fused_conv
-# print(fused_conv.bias.shape)
 ''',namespace)
-
   return
 
 
 def fold_resnet(model, device):
   def numrepl(matchobj):
     return f'[{matchobj.group(0)[1]}]'
+  fused_model = deepcopy(model)
   # something to analize the network
   relu_list = []
-  for name, layer in model.named_modules():
+  for name, layer in fused_model.named_modules():
     if isinstance(layer, (nn.Identity)):
-      #  is this enough?
-      #probably the name needs to be changed
       pattern = r'\.[0-9]'  
       name = re.sub(pattern=pattern, repl=numrepl, string=name)
       relu_list.append(name)
-  # something to fuse the right layers
-  # I will need exec to adapt this code
-
-  count = 0
 
   for i in range(len(relu_list)):
   # for relu in relu_list:
     if relu_list[i][-1] =='1':
-      inside_block_fusion(model, device, relu_list[i][:-5])
-      with open(f'/raid/gpilo/fusing_layers/fused_models/CIFAR-10_ResNet-18/fused_layers{count+1}', 'wb') as f:
-        pickle.dump(model, f)
-      count += 1
+      inside_block_fusion(fused_model, device, relu_list[i][:-5])
 
+  return fused_model
 
-  return
+def inside_MLP_fusion(model, name, device):
+    namespace = {'model': model, 
+                 'device': device, 
+                 'torch':torch, 
+                 'calculate_equivalent_fc_layer': calculate_equivalent_fc_layer,
+                 'nn': nn}
+    exec(f'''
+fc1 = model.{name}[0]
+fc2 = model.{name}[3]
+fused_fc = calculate_equivalent_fc_layer(fc1,fc2,device)
+model.{name}[0] = fused_fc
+model.{name}[3] = nn.Identity()
+''', namespace)
+    return
 
-def fold_swint():
-    # TODO implement this
-    pass
+def fold_swint(model, device):
+    def numrepl(matchobj):
+        return f'[{matchobj.group(0)[1]}]'
+    fused_model = deepcopy(model)
+    relu_list = []
+    for name, layer in fused_model.named_modules():
+      if isinstance(layer, (nn.Identity)):
+        pattern = r'\.[0-9]'  
+        name = re.sub(pattern=pattern, repl=numrepl, string=name)
+        # print(name)
+        relu_list.append(name)
 
-def fold(model, type):
-  return
+    for relu in relu_list:
+      inside_MLP_fusion(relu[:-3], fused_model, device)
+
+    return fused_model
+
+def fold(model, type, device):
+  if type == 'resnet':
+    return fold_resnet(model, device)
+  elif type == 'swint':
+    return fold_swint(model, device)
+  else:
+    raise NotImplementedError(f'{type} not supported')
+
 
 if __name__ == '__main__':
   pass
