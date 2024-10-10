@@ -37,7 +37,6 @@ def calculate_equivalent_convolutional_layer(conv1, conv2, device):
 
     return conv_eq   
 
-# function from https://nenadmarkus.com/p/fusing-batchnorm-and-conv/
 def fuse_conv_and_bn(conv, bn, device):
 	#
 	# init
